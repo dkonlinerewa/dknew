@@ -1,1 +1,0 @@
-<?php echo json_encode(['module'=>'chat send']); ?>

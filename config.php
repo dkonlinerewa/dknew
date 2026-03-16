@@ -1,8 +1,6 @@
 <?php
 // ===== config.php =====
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
-
-// Base URL for assets/uploads
 if (!defined('BASE_URL')) {
     $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host  = $_SERVER['HTTP_HOST'] ?? 'localhost';
@@ -10,43 +8,28 @@ if (!defined('BASE_URL')) {
     define('BASE_URL', $proto . '://' . $host . $dir);
 }
 
-// Timezone
-date_default_timezone_set('Asia/Kolkata');
-
-// Database
 define('DB_PATH', __DIR__ . '/dk_associates.db');
-
-// Upload directories
 define('UPLOAD_DIR', 'uploads/');
 define('PHOTO_DIR', UPLOAD_DIR . 'photos/');
 define('DOCUMENT_DIR', UPLOAD_DIR . 'documents/');
 define('QR_DIR', UPLOAD_DIR . 'qr/');
-
-// Create directories if not exist
 foreach ([UPLOAD_DIR, PHOTO_DIR, DOCUMENT_DIR, QR_DIR] as $dir) {
     if (!file_exists($dir)) {
         mkdir($dir, 0755, true);
     }
 }
-
-// Security
 define('SESSION_TIMEOUT', 3600); // 1 hour
 define('RATE_LIMIT', 60); // requests per minute
 define('MAX_LOGIN_ATTEMPTS', 5);
 define('LOCKOUT_TIME', 900); // 15 minutes
-
-// Email (configure these)
 define('SMTP_HOST', '');
 define('SMTP_PORT', 587);
 define('SMTP_USER', '');
 define('SMTP_PASS', '');
 define('FROM_EMAIL', 'noreply@hidk.in');
 define('FROM_NAME', 'D K Associates');
-
-// Redis (optional for session/cache)
 define('REDIS_HOST', 'localhost');
 define('REDIS_PORT', 6379);
-
 /**
  * Helper function to get the database singleton
  */
@@ -55,13 +38,12 @@ function db() {
     return $db;
 }
 
-// Function to log activities
+
 function logActivity($action, $details = '') {
     $db = db();
     $ip = $_SERVER['REMOTE_ADDR'] ?? '';
     $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
     $user_id = $_SESSION['admin_id'] ?? 0;
-    
     $stmt = $db->prepare("INSERT INTO activity_log (user_id, action, details, ip_address, user_agent) 
                           VALUES (?, ?, ?, ?, ?)");
     $stmt->bindValue(1, $user_id);
@@ -71,8 +53,6 @@ function logActivity($action, $details = '') {
     $stmt->bindValue(5, $user_agent);
     $stmt->execute();
 }
-
-// Function to send notification
 function sendNotification($user_id, $type, $title, $message, $action_url = '') {
     $db = db();
     $stmt = $db->prepare("INSERT INTO notifications (user_id, type, title, message, action_url) 
@@ -84,34 +64,25 @@ function sendNotification($user_id, $type, $title, $message, $action_url = '') {
     $stmt->bindValue(5, $action_url);
     $stmt->execute();
 }
-
-// Function to check rate limit
 function checkRateLimit($key, $limit = RATE_LIMIT, $period = 60) {
     $cache_file = sys_get_temp_dir() . '/ratelimit_' . md5($key);
     $data = [];
-    
     if (file_exists($cache_file)) {
         $data = json_decode(file_get_contents($cache_file), true);
         $data = array_filter($data, function($time) use ($period) {
             return $time > time() - $period;
         });
     }
-    
     if (count($data) >= $limit) {
         return false;
     }
-    
     $data[] = time();
     file_put_contents($cache_file, json_encode($data));
     return true;
 }
-
-// Function to ensure database schema is up to date
 function ensureDatabaseSchema($db) {
     try {
         $db->exec("BEGIN IMMEDIATE TRANSACTION");
-
-        // Table definitions
         $tables = [
             "admin_users" => "CREATE TABLE IF NOT EXISTS admin_users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -489,12 +460,9 @@ function ensureDatabaseSchema($db) {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )"
         ];
-
         foreach ($tables as $name => $sql) {
             $db->exec($sql);
         }
-
-        // Indexes
         $indexes = [
             "CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to, status)",
             "CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date, user_id)",
@@ -508,8 +476,6 @@ function ensureDatabaseSchema($db) {
         foreach ($indexes as $sql) {
             $db->exec($sql);
         }
-
-        // Column Migrations
         $columnMigrations = [
             "admin_users" => [
                 'is_online' => 'INTEGER DEFAULT 0',
@@ -570,7 +536,6 @@ function ensureDatabaseSchema($db) {
                 'setting_type' => 'TEXT'
             ]
         ];
-
         foreach ($columnMigrations as $table => $cols_to_add) {
             $res = $db->query("PRAGMA table_info($table)");
             $existing_cols = [];
@@ -581,8 +546,6 @@ function ensureDatabaseSchema($db) {
                 }
             }
         }
-
-        // Default settings
         $existing = $db->querySingle("SELECT COUNT(*) FROM site_settings WHERE setting_key LIKE 'geofence%'");
         if ($existing == 0) {
             $defaults = [
@@ -596,14 +559,11 @@ function ensureDatabaseSchema($db) {
                 $db->exec("INSERT OR IGNORE INTO site_settings (setting_key, setting_value, setting_type) VALUES ('{$d[0]}', '{$d[1]}', '{$d[2]}')");
             }
         }
-
         $db->exec("COMMIT TRANSACTION");
     } catch (Exception $e) {
         if (isset($db)) $db->exec("ROLLBACK TRANSACTION");
     }
 }
-
-// Initialize Database Connection
 try {
     $db = new \SQLite3(DB_PATH);
     $db->busyTimeout(5000);
@@ -611,4 +571,24 @@ try {
     ensureDatabaseSchema($db);
 } catch (Exception $e) {
     die("Fatal Error: Could not connect to SQLite database. " . $e->getMessage());
+}
+
+try {
+    if (function_exists('db')) {
+        $db_inst = db();
+        if ($db_inst) {
+            $tz = $db_inst->querySingle("SELECT setting_value FROM site_settings WHERE setting_key = 'app_timezone'");
+            if ($tz) {
+                date_default_timezone_set($tz);
+            } else {
+                date_default_timezone_set('Asia/Kolkata');
+            }
+        } else {
+            date_default_timezone_set('Asia/Kolkata');
+        }
+    } else {
+        date_default_timezone_set('Asia/Kolkata');
+    }
+} catch (Exception $e) {
+    date_default_timezone_set('Asia/Kolkata');
 }
