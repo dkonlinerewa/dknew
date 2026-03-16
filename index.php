@@ -2,25 +2,31 @@
 if (!file_exists('config.php')) {
     die('Configuration file not found.');
 }
-
 require_once 'config.php';
-
 if (!defined('DB_PATH')) {
     die('Database configuration error.');
 }
-
 $dataDir = dirname(DB_PATH);
 if (!file_exists($dataDir)) {
     mkdir($dataDir, 0755, true);
 }
-
 try {
     $db = new SQLite3(DB_PATH);
     $db->enableExceptions(true);
     $db->busyTimeout(5000);
+
+$is_staff_online = false;
+try {
+    if (isset($db)) {
+        $online_check = $db->querySingle("SELECT COUNT(*) FROM admin_users WHERE last_active > datetime('now', '-5 minutes') AND (role = 'admin' OR care_permission = 1)");
+        if ($online_check > 0) {
+            $is_staff_online = true;
+        }
+    }
+} catch (Exception $e) {}
+
     $db->exec("PRAGMA journal_mode = WAL");
     $db->exec("BEGIN IMMEDIATE TRANSACTION");
-    
     $tables = [
         'applications' => "CREATE TABLE IF NOT EXISTS applications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,7 +57,6 @@ try {
             expected_ctc TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
-        
         'service_enquiries' => "CREATE TABLE IF NOT EXISTS service_enquiries (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
@@ -64,7 +69,6 @@ try {
             status TEXT DEFAULT 'pending',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
-        
         'general_contacts' => "CREATE TABLE IF NOT EXISTS general_contacts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
@@ -75,7 +79,6 @@ try {
             status TEXT DEFAULT 'pending',
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
-        
         'open_positions' => "CREATE TABLE IF NOT EXISTS open_positions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT,
@@ -88,7 +91,6 @@ try {
             is_active INTEGER DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
-        
         'chat_messages' => "CREATE TABLE IF NOT EXISTS chat_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id TEXT,
@@ -99,7 +101,6 @@ try {
             is_read INTEGER DEFAULT 0,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
-        
         'team_members' => "CREATE TABLE IF NOT EXISTS team_members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT,
@@ -110,14 +111,12 @@ try {
             is_active INTEGER DEFAULT 1,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
-        
         'site_settings' => "CREATE TABLE IF NOT EXISTS site_settings (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             setting_key TEXT UNIQUE,
             setting_value TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
-        
         'chat_sessions' => "CREATE TABLE IF NOT EXISTS chat_sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id TEXT UNIQUE,
@@ -131,7 +130,6 @@ try {
             last_activity DATETIME,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
-        
         'chat_queue' => "CREATE TABLE IF NOT EXISTS chat_queue (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id TEXT,
@@ -140,7 +138,6 @@ try {
             assigned_at DATETIME,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )",
-        
         'admin_users' => "CREATE TABLE IF NOT EXISTS admin_users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE,
@@ -154,11 +151,9 @@ try {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )"
     ];
-    
     foreach ($tables as $createSql) {
         $db->exec($createSql);
     }
-    
     $defaultSettings = [
         ['site_logo', '🏢'],
         ['site_favicon', 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/icons/building.svg'],
@@ -171,14 +166,12 @@ try {
         ['company_hours', '7 Days: 10:00 AM - 6:30 PM'],
         ['founded_year', '2025']
     ];
-    
     foreach ($defaultSettings as $setting) {
         $stmt = $db->prepare("INSERT OR IGNORE INTO site_settings (setting_key, setting_value) VALUES (?, ?)");
         $stmt->bindValue(1, $setting[0]);
         $stmt->bindValue(2, $setting[1]);
         $stmt->execute();
     }
-    
     $count = $db->querySingle("SELECT COUNT(*) FROM team_members");
     if ($count == 0) {
         $sampleTeam = [
@@ -189,7 +182,6 @@ try {
             ['Pankaj Tiwari', 'Recruitment', 'Connecting the right talent with opportunities', 'https://via.placeholder.com/300x250?text=Pankaj', 4],
             ['Rahul Sharma', 'Advisor & Consultant', 'Providing strategic guidance and expertise', 'https://via.placeholder.com/300x250?text=Rahul', 6]
         ];
-        
         foreach ($sampleTeam as $member) {
             $stmt = $db->prepare("INSERT INTO team_members (name, position, bio, photo_url, display_order, is_active) VALUES (?, ?, ?, ?, ?, 1)");
             $stmt->bindValue(1, $member[0]);
@@ -200,7 +192,6 @@ try {
             $stmt->execute();
         }
     }
-    
     $count = $db->querySingle("SELECT COUNT(*) FROM open_positions");
     if ($count == 0) {
         $sampleJobs = [
@@ -211,7 +202,6 @@ try {
             ['Cook', 'Rewa', 'Part-time', '₹6,000 - ₹10,000', 'Need cook for home cooking', 'Experience in vegetarian and non-vegetarian cooking', 0],
             ['Security Guard', 'Rewa', 'Full-time', '₹9,000 - ₹12,000', 'Security guards for residential and commercial buildings', 'Physically fit, night shift availability', 1]
         ];
-        
         foreach ($sampleJobs as $job) {
             $stmt = $db->prepare("INSERT INTO open_positions (title, location, type, salary, description, requirements, urgent, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)");
             $stmt->bindValue(1, $job[0]);
@@ -224,17 +214,13 @@ try {
             $stmt->execute();
         }
     }
-    
     $db->exec("COMMIT TRANSACTION");
-    
 } catch (Exception $e) {
     die("Unable to connect to database.");
 }
-
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-
 function getSetting($db, $key, $default = '') {
     try {
         $stmt = $db->prepare("SELECT setting_value FROM site_settings WHERE setting_key = ?");
@@ -246,7 +232,6 @@ function getSetting($db, $key, $default = '') {
         return $default;
     }
 }
-
 $site_logo = getSetting($db, 'site_logo', '🏢');
 $site_favicon = getSetting($db, 'site_favicon', 'https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/icons/building.svg');
 $site_title = getSetting($db, 'site_title', 'D K Associates');
@@ -257,18 +242,15 @@ $company_email = getSetting($db, 'company_email', 'care@hidk.in');
 $company_address = getSetting($db, 'company_address', '2nd Floor, Utopia Tower, Above Shriram Finance, Near College Chowk Flyover, Rewa, MP - 486001');
 $company_hours = getSetting($db, 'company_hours', '7 Days: 10:00 AM - 6:30 PM');
 $founded_year = getSetting($db, 'founded_year', '2025');
-
 class VisitorCounter {
     private $dataFile = 'data/visitor_data.json';
     private $onlineFile = 'data/online_users.json';
     private $onlineTimeout = 300;
     private $ip;
-
     public function __construct() {
         $this->ip = $this->getVisitorIP();
         $this->initializeFiles();
     }
-
     private function getVisitorIP() {
         $ip = '';
         if (!empty($_SERVER['HTTP_CLIENT_IP'])) $ip = $_SERVER['HTTP_CLIENT_IP'];
@@ -276,60 +258,47 @@ class VisitorCounter {
         else $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
         return $ip;
     }
-
     private function initializeFiles() {
         $defaultData = ['total' => 0, 'today' => 0, 'total_visits' => 0, 'today_visits' => 0, 'date' => date('Y-m-d'), 'unique_ips' => []];
-        
         if (!file_exists($this->dataFile)) {
             if (!is_dir('data')) mkdir('data', 0755, true);
             file_put_contents($this->dataFile, json_encode($defaultData));
         }
-        
         if (!file_exists($this->onlineFile)) {
             if (!is_dir('data')) mkdir('data', 0755, true);
             file_put_contents($this->onlineFile, json_encode(['users' => []]));
         }
     }
-
     public function updateCounters() {
         if (!file_exists($this->dataFile)) return;
-        
         $data = json_decode(file_get_contents($this->dataFile), true);
         $today = date('Y-m-d');
-
         if ($data['date'] !== $today) {
             $data['today'] = 0;
             $data['today_visits'] = 0;
             $data['date'] = $today;
             $data['unique_ips'] = [];
         }
-
         $data['total_visits']++;
         $data['today_visits']++;
-
         if (!in_array($this->ip, $data['unique_ips'])) {
             $data['unique_ips'][] = $this->ip;
             $data['today']++;
             $data['total']++;
         }
-
         file_put_contents($this->dataFile, json_encode($data));
         $this->updateOnlineUsers();
     }
-
     private function updateOnlineUsers() {
         if (!file_exists($this->onlineFile)) return;
-        
         $data = json_decode(file_get_contents($this->onlineFile), true);
         $currentTime = time();
         $validUsers = [];
-
         foreach ($data['users'] as $user) {
             if (($currentTime - $user['last_seen']) < $this->onlineTimeout) {
                 $validUsers[] = $user;
             }
         }
-
         $userFound = false;
         foreach ($validUsers as &$user) {
             if ($user['ip'] === $this->ip) {
@@ -338,7 +307,6 @@ class VisitorCounter {
                 break;
             }
         }
-
         if (!$userFound) {
             $validUsers[] = [
                 'ip' => $this->ip, 
@@ -346,28 +314,22 @@ class VisitorCounter {
                 'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown'
             ];
         }
-
         $data['users'] = $validUsers;
         file_put_contents($this->onlineFile, json_encode($data));
     }
-
     public function getCounterData() {
         $data = ['total' => 0, 'today' => 0, 'total_visits' => 0, 'today_visits' => 0];
         $onlineCount = 0;
-        
         if (file_exists($this->dataFile)) {
             $data = json_decode(file_get_contents($this->dataFile), true);
         }
-        
         if (file_exists($this->onlineFile)) {
             $onlineData = json_decode(file_get_contents($this->onlineFile), true);
             $currentTime = time();
-            
             foreach ($onlineData['users'] as $user) {
                 if (($currentTime - $user['last_seen']) < $this->onlineTimeout) $onlineCount++;
             }
         }
-
         return [
             'total' => number_format($data['total']),
             'today' => number_format($data['today']),
@@ -377,15 +339,12 @@ class VisitorCounter {
         ];
     }
 }
-
 $visitorCounter = new VisitorCounter();
 $visitorCounter->updateCounters();
 $counterData = $visitorCounter->getCounterData();
-
 if (empty($_SESSION['csrf_token'])) {
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
-
 if (!isset($_SESSION['device_id'])) {
     if (isset($_COOKIE['device_id'])) {
         $_SESSION['device_id'] = $_COOKIE['device_id'];
@@ -394,22 +353,18 @@ if (!isset($_SESSION['device_id'])) {
         setcookie('device_id', $_SESSION['device_id'], time() + 86400, '/', '', true, true);
     }
 }
-
 $form_submitted = false;
 $form_success = false;
 $form_message = '';
 $form_type = '';
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['csrf_token']) && $_POST['csrf_token'] === $_SESSION['csrf_token']) {
     $form_submitted = true;
     $form_type = $_POST['form_type'] ?? '';
-
     try {
         if ($form_type === 'permanent') {
             $name = htmlspecialchars(trim($_POST['name'] ?? ''), ENT_QUOTES, 'UTF-8');
             $phone = htmlspecialchars(trim($_POST['phone'] ?? ''), ENT_QUOTES, 'UTF-8');
             $post_applied = htmlspecialchars(trim($_POST['post_applied'] ?? ''), ENT_QUOTES, 'UTF-8');
-            
             if (empty($name) || empty($phone) || empty($post_applied)) {
                 $form_message = "Please fill in all required fields.";
             } elseif (!preg_match('/^[0-9]{10}$/', $phone)) {
@@ -434,15 +389,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['csrf_token']) && $_PO
                 $skills = isset($_POST['communication_skills']) ? implode(',', $_POST['communication_skills']) : '';
                 $stmt->bindValue(16, $skills);
                 $stmt->execute();
-                
                 $form_success = true;
                 $form_message = "Application submitted successfully! We'll contact you soon.";
             }
-            
         } elseif ($form_type === 'skilled') {
             $name = htmlspecialchars(trim($_POST['name'] ?? ''), ENT_QUOTES, 'UTF-8');
             $phone = htmlspecialchars(trim($_POST['phone'] ?? ''), ENT_QUOTES, 'UTF-8');
-            
             if (empty($name) || empty($phone)) {
                 $form_message = "Please fill in all required fields.";
             } elseif (!preg_match('/^[0-9]{10}$/', $phone)) {
@@ -465,16 +417,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['csrf_token']) && $_PO
                 $stmt->bindValue(14, $_POST['work_locality'] ?? '');
                 $stmt->bindValue(15, $_POST['skill_description'] ?? '');
                 $stmt->execute();
-                
                 $form_success = true;
                 $form_message = "Registration submitted successfully! We'll help grow your business.";
             }
-            
         } elseif ($form_type === 'placement') {
             $name = htmlspecialchars(trim($_POST['name'] ?? ''), ENT_QUOTES, 'UTF-8');
             $phone = htmlspecialchars(trim($_POST['phone'] ?? ''), ENT_QUOTES, 'UTF-8');
             $email = htmlspecialchars(trim($_POST['email'] ?? ''), ENT_QUOTES, 'UTF-8');
-            
             if (empty($name) || empty($phone) || empty($email)) {
                 $form_message = "Please fill in all required fields.";
             } elseif (!preg_match('/^[0-9]{10}$/', $phone)) {
@@ -483,7 +432,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['csrf_token']) && $_PO
                 $form_message = "Please enter a valid email address.";
             } else {
                 $location = isset($_POST['desired_location']) ? implode(',', $_POST['desired_location']) : '';
-                
                 $stmt = $db->prepare("INSERT INTO applications (form_type, name, father_husband_name, dob, gender, marital_status, phone, email, current_address, permanent_address, qualification, experience, desired_location, desired_job_profile, current_job_role, notice_period, current_ctc, expected_ctc) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 $stmt->bindValue(1, 'placement');
                 $stmt->bindValue(2, $name);
@@ -504,15 +452,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['csrf_token']) && $_PO
                 $stmt->bindValue(17, $_POST['current_ctc'] ?? '');
                 $stmt->bindValue(18, $_POST['expected_ctc'] ?? '');
                 $stmt->execute();
-                
                 $form_success = true;
                 $form_message = "Placement request submitted successfully!";
             }
-            
         } elseif (isset($_POST['service_enquiry'])) {
             $name = htmlspecialchars(trim($_POST['name'] ?? ''), ENT_QUOTES, 'UTF-8');
             $phone = htmlspecialchars(trim($_POST['phone'] ?? ''), ENT_QUOTES, 'UTF-8');
-            
             if (empty($name)) {
                 $form_message = "Please enter your name.";
             } elseif (!preg_match('/^[0-9]{10}$/', $phone)) {
@@ -527,15 +472,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['csrf_token']) && $_PO
                 $stmt->bindValue(6, $_POST['service_description'] ?? '');
                 $stmt->bindValue(7, $_POST['address'] ?? '');
                 $stmt->execute();
-                
                 $form_success = true;
                 $form_message = "Service enquiry submitted! We'll contact you within 15 minutes.";
             }
-            
         } elseif (isset($_POST['general_contact'])) {
             $name = htmlspecialchars(trim($_POST['name'] ?? ''), ENT_QUOTES, 'UTF-8');
             $email = htmlspecialchars(trim($_POST['email'] ?? ''), ENT_QUOTES, 'UTF-8');
-            
             if (empty($name)) {
                 $form_message = "Please enter your name.";
             } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -548,19 +490,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['csrf_token']) && $_PO
                 $stmt->bindValue(4, $_POST['subject'] ?? '');
                 $stmt->bindValue(5, $_POST['message'] ?? '');
                 $stmt->execute();
-                
                 $form_success = true;
                 $form_message = "Message sent! We'll respond within 24 hours.";
             }
         }
-        
     } catch (Exception $e) {
         $form_message = "Unable to process your request. Please try again.";
     }
-
     $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 }
-
 $activeTab = $_GET['tab'] ?? 'home';
 $activeBusinessTab = $_GET['sub'] ?? 'features';
 $activeJobsTab = $_GET['sub'] ?? 'openings';
@@ -578,918 +516,8 @@ $currentYear = date("Y");
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
 
-        body {
-            font-family: 'Plus Jakarta Sans', sans-serif;
-            background: linear-gradient(145deg, #f6f9fc 0%, #eef2f6 100%);
-            min-height: 100vh;
-            color: #1e293b;
-            overflow-x: hidden;
-            width: 100%;
-        }
-
-        :root {
-            --primary: #0f3b5e;
-            --primary-light: #1a4b73;
-            --primary-dark: #0a2c45;
-            --secondary: #e67e22;
-            --secondary-light: #f39c12;
-            --accent: #2ecc71;
-            --text-dark: #1e293b;
-            --text-light: #64748b;
-            --bg-light: #ffffff;
-            --bg-offwhite: #f8fafc;
-            --shadow-sm: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            --shadow-md: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-            --shadow-lg: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-            --gradient-primary: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
-            --gradient-secondary: linear-gradient(135deg, var(--secondary) 0%, var(--secondary-light) 100%);
-            --gradient-accent: linear-gradient(135deg, #3498db 0%, #2ecc71 100%);
-            --gradient-gold: linear-gradient(135deg, #f1c40f 0%, #e67e22 100%);
-            --gradient-sunset: linear-gradient(135deg, #e74c3c 0%, #f39c12 100%);
-        }
-        
-        .container {
-            width: 100%;
-            max-width: 1320px;
-            margin: 0 auto;
-            padding: 0 15px;
-            box-sizing: border-box;
-        }
-
-        .navbar-custom {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            box-shadow: var(--shadow-sm);
-            padding: 1rem 0;
-            transition: all 0.3s ease;
-        }
-
-        .navbar-custom.scrolled {
-            padding: 0.5rem 0;
-            background: rgba(255, 255, 255, 0.98);
-        }
-
-        .navbar-brand {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            text-decoration: none;
-        }
-        
-        .row {
-            display: flex;
-            flex-wrap: wrap;
-            margin-right: -15px;
-            margin-left: -15px;
-        }
-
-        .col-md-6, .col-md-4, .col-md-3, .col-12 {
-            position: relative;
-            width: 100%;
-            padding-right: 15px;
-            padding-left: 15px;
-            box-sizing: border-box;
-        }
-
-        @media (min-width: 768px) {
-            .col-md-3 { flex: 0 0 25%; max-width: 25%; }
-            .col-md-4 { flex: 0 0 33.333333%; max-width: 33.333333%; }
-            .col-md-6 { flex: 0 0 50%; max-width: 50%; }
-        }
-
-        .col-12 { flex: 0 0 100%; max-width: 100%; }
-
-        .logo-container {
-            width: 50px;
-            height: 50px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: var(--gradient-primary);
-            border-radius: 12px;
-            color: white;
-            font-size: 1.8rem;
-        }
-
-        .logo-container img {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            border-radius: 8px;
-        }
-
-        .brand-text {
-            font-weight: 800;
-            font-size: 1.8rem;
-            background: var(--gradient-primary);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            letter-spacing: -0.5px;
-            line-height: 1.2;
-        }
-
-        .brand-tagline {
-            font-size: 0.75rem;
-            color: var(--text-light);
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            margin-top: -5px;
-            -webkit-text-fill-color: initial;
-        }
-
-        .nav-link-custom {
-            font-weight: 600;
-            color: var(--text-dark) !important;
-            padding: 0.5rem 1rem !important;
-            margin: 0 0.2rem;
-            border-radius: 8px;
-            transition: all 0.3s ease;
-            position: relative;
-        }
-
-        .nav-link-custom:hover,
-        .nav-link-custom.active {
-            background: var(--gradient-primary);
-            color: white !important;
-            transform: translateY(-2px);
-        }
-
-        .nav-link-custom i {
-            margin-right: 6px;
-            font-size: 1.1rem;
-        }
-
-        @media (max-width: 991px) {
-            .navbar-collapse {
-                max-height: 80vh;
-                overflow-y: auto;
-                padding: 1rem 0;
-            }
-            
-            .nav-link-custom {
-                padding: 0.75rem 1rem !important;
-                margin: 0.25rem 0;
-            }
-            
-            .navbar-nav .counter-badge {
-                margin-top: 1rem;
-                width: 100%;
-                text-align: center;
-                justify-content: center;
-            }
-        }
-
-        .counter-badge {
-            background: var(--gradient-gold);
-            color: white;
-            padding: 0.5rem 1.2rem;
-            border-radius: 50px;
-            font-weight: 600;
-            font-size: 0.9rem;
-            box-shadow: var(--shadow-sm);
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .counter-badge i {
-            font-size: 1rem;
-        }
-
-        .hero-section {
-            background: linear-gradient(145deg, var(--primary) 0%, var(--primary-light) 100%);
-            color: white;
-            padding: 4rem 4px 2rem;
-            margin-bottom: 2rem;
-            border-radius: 0 0 3rem 3rem;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .hero-section::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            right: 0;
-            bottom: 0;
-            left: 0;
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" opacity="0.1"><text x="10" y="20" font-size="12" fill="white">WORKFORCE</text><text x="30" y="50" font-size="16" fill="white">EVERYDAY HELP</text><text x="50" y="80" font-size="20" fill="white">DK</text></svg>') repeat;
-            pointer-events: none;
-        }
-
-        .hero-title {
-            font-size: 3.5rem;
-            font-weight: 800;
-            line-height: 1.2;
-            margin-bottom: 1rem;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-        }
-
-        .hero-subtitle {
-            font-size: 1.25rem;
-            opacity: 0.95;
-            margin-bottom: 2rem;
-        }
-
-        .hero-badge {
-            background: rgba(255, 255, 255, 0.2);
-            backdrop-filter: blur(5px);
-            padding: 0.5rem 1.5rem;
-            border-radius: 50px;
-            display: inline-block;
-            margin-bottom: 1.5rem;
-            font-weight: 600;
-        }
-
-        .card-modern {
-            background: white;
-            border: none;
-            border-radius: 24px;
-            overflow: hidden;
-            box-shadow: var(--shadow-sm);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-        }
-
-        .card-modern:hover {
-            transform: translateY(-8px);
-            box-shadow: var(--shadow-lg);
-        }
-
-        .card-header-gradient {
-            background: var(--gradient-primary);
-            padding: 2rem 1.5rem;
-            color: white;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .card-header-gradient::after {
-            content: '';
-            position: absolute;
-            top: -50%;
-            right: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle, rgba(255,255,255,0.2) 0%, transparent 70%);
-            opacity: 0.5;
-        }
-
-        .card-icon {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-        }
-
-        .card-body-modern {
-            padding: 1.75rem;
-        }
-
-        .service-card {
-            background: white;
-            border-radius: 20px;
-            padding: 2rem 1.5rem;
-            text-align: center;
-            transition: all 0.3s ease;
-            border: 2px solid transparent;
-            height: 100%;
-        }
-
-        .service-card:hover {
-            border-color: var(--primary);
-            transform: scale(1.02);
-            box-shadow: var(--shadow-md);
-        }
-
-        .service-icon-wrapper {
-            width: 80px;
-            height: 80px;
-            background: var(--gradient-primary);
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 auto 1.5rem;
-            color: white;
-            font-size: 2rem;
-            transition: all 0.3s ease;
-        }
-
-        .service-card:hover .service-icon-wrapper {
-            transform: rotate(360deg);
-        }
-
-        .form-floating-custom {
-            margin-bottom: 1.5rem;
-        }
-
-        .form-floating-custom input,
-        .form-floating-custom select,
-        .form-floating-custom textarea {
-            border: 2px solid #e2e8f0;
-            border-radius: 16px;
-            padding: 1rem 1.25rem;
-            font-size: 1rem;
-            transition: all 0.3s ease;
-            background: white;
-            width: 100%;
-            min-height: 54px;
-            box-sizing: border-box;
-        }
-
-        .form-floating-custom input:focus,
-        .form-floating-custom select:focus,
-        .form-floating-custom textarea:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 4px rgba(15, 59, 94, 0.1);
-            outline: none;
-        }
-
-        .form-floating-custom label {
-            font-weight: 600;
-            color: var(--text-dark);
-            margin-bottom: 0.5rem;
-            display: block;
-        }
-
-        .btn-primary-custom {
-            width: 100%;
-            background: var(--gradient-primary);
-            color: white;
-            border: none;
-            border-radius: 16px;
-            padding: 1rem 2rem;
-            font-weight: 700;
-            font-size: 1.1rem;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .btn-primary-custom::before {
-            content: '';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 0;
-            height: 0;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.3);
-            transform: translate(-50%, -50%);
-            transition: width 0.6s, height 0.6s;
-        }
-
-        .btn-primary-custom:hover::before {
-            width: 300px;
-            height: 300px;
-        }
-
-        .btn-primary-custom:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-md);
-        }
-
-        .btn-primary-custom,
-        .btn-outline-custom {
-            width: 100%;
-            min-height: 54px;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            white-space: nowrap;
-        }
-
-        .btn-outline-custom {
-            background: transparent;
-            border: 2px solid var(--primary);
-            color: var(--primary);
-            border-radius: 16px;
-            padding: 1rem 2rem;
-            font-weight: 700;
-            font-size: 1.1rem;
-            transition: all 0.3s ease;
-            text-decoration: none;
-        }
-
-        .btn-outline-custom:hover {
-            background: var(--primary);
-            color: white;
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-md);
-        }
-        
-        @media (max-width: 768px) {
-            .btn-primary-custom,
-            .btn-outline-custom {
-                width: 100%;
-                margin-bottom: 10px;
-            }
-        }
-
-        .job-card {
-            background: white;
-            border-radius: 20px;
-            padding: 1.5rem;
-            margin-bottom: 1rem;
-            border-left: 6px solid var(--primary);
-            transition: all 0.3s ease;
-            box-shadow: var(--shadow-sm);
-        }
-
-        .job-card:hover {
-            transform: translateX(8px);
-            box-shadow: var(--shadow-md);
-        }
-
-        .urgent-badge {
-            background: var(--gradient-sunset);
-            color: white;
-            padding: 0.25rem 1rem;
-            border-radius: 50px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            display: inline-block;
-        }
-
-        .team-card {
-            background: white;
-            border-radius: 24px;
-            overflow: hidden;
-            box-shadow: var(--shadow-sm);
-            transition: all 0.3s ease;
-        }
-
-        .team-card:hover {
-            transform: translateY(-8px);
-            box-shadow: var(--shadow-lg);
-        }
-
-        .team-img {
-            width: 100%;
-            height: 250px;
-            object-fit: cover;
-            transition: all 0.5s ease;
-        }
-
-        .team-card:hover .team-img {
-            transform: scale(1.05);
-        }
-
-        .team-info {
-            padding: 1.5rem;
-            text-align: center;
-            background: linear-gradient(to top, white, #f8fafc);
-        }
-
-        .team-name {
-            font-weight: 800;
-            color: var(--primary);
-            margin-bottom: 0.25rem;
-        }
-
-        .team-position {
-            color: var(--secondary);
-            font-weight: 600;
-            font-size: 0.9rem;
-            margin-bottom: 1rem;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .chat-widget {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            width: 380px;
-            max-height: calc(100vh - 60px);
-            background: white;
-            border-radius: 24px;
-            box-shadow: var(--shadow-lg);
-            display: none;
-            z-index: 9999;
-            overflow: hidden;
-            flex-direction: column;
-        }
-
-        .chat-widget.show {
-            display: block;
-            animation: slideUp 0.3s ease;
-        }
-
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .chat-header {
-            background: var(--gradient-primary);
-            color: white;
-            padding: 1.5rem;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .chat-header h5 {
-            margin: 0;
-            font-weight: 700;
-        }
-
-        .chat-messages {
-            max-height: 350px;
-            overflow-y: auto;
-            padding: 1.5rem;
-            background: #f8fafc;
-        }
-
-        .chat-message {
-            margin-bottom: 1rem;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .chat-message.guest {
-            align-items: flex-end;
-        }
-
-        .chat-message.admin {
-            align-items: flex-start;
-        }
-
-        .message-bubble {
-            max-width: 80%;
-            padding: 0.75rem 1rem;
-            border-radius: 20px;
-            position: relative;
-            word-wrap: break-word;
-        }
-
-        .guest .message-bubble {
-            background: var(--gradient-primary);
-            color: white;
-            border-bottom-right-radius: 4px;
-        }
-
-        .admin .message-bubble {
-            background: white;
-            color: var(--text-dark);
-            border-bottom-left-radius: 4px;
-            box-shadow: var(--shadow-sm);
-        }
-
-        .message-time {
-            font-size: 0.7rem;
-            color: var(--text-light);
-            margin-top: 4px;
-        }
-
-        .chat-input-area {
-            padding: 1rem;
-            border-top: 2px solid #e2e8f0;
-            display: flex;
-            gap: 0.5rem;
-            background: white;
-        }
-
-        .chat-input-area input {
-            flex: 1;
-            border: 2px solid #e2e8f0;
-            border-radius: 30px;
-            padding: 0.75rem 1.25rem;
-            outline: none;
-        }
-
-        .chat-input-area input:focus {
-            border-color: var(--primary);
-        }
-
-        .chat-send-btn {
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            background: var(--gradient-primary);
-            color: white;
-            border: none;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.25rem;
-            transition: all 0.3s ease;
-        }
-
-        .chat-send-btn:hover {
-            transform: scale(1.1);
-        }
-
-        .chat-toggle {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            width: 65px;
-            height: 65px;
-            border-radius: 50%;
-            background: var(--gradient-gold);
-            color: white;
-            border: none;
-            box-shadow: var(--shadow-lg);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.75rem;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            z-index: 9998;
-        }
-
-        .chat-toggle:hover {
-            transform: scale(1.1);
-        }
-
-        .chat-init-form {
-            padding: 1.5rem;
-            max-height: calc(100vh - 160px);
-            overflow-y: auto;
-        }
-
-        .quick-contact-popup {
-            position: fixed;
-            bottom: 110px;
-            right: 30px;
-            width: 300px;
-            background: white;
-            border-radius: 20px;
-            box-shadow: var(--shadow-lg);
-            display: none;
-            z-index: 9997;
-            overflow: hidden;
-        }
-
-        .quick-contact-popup.show {
-            display: block;
-            animation: slideUp 0.3s ease;
-        }
-
-        .quick-contact-item {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 1rem 1.5rem;
-            transition: all 0.3s ease;
-            text-decoration: none;
-            color: var(--text-dark);
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        .quick-contact-item:hover {
-            background: #f8fafc;
-            transform: translateX(8px);
-        }
-
-        .quick-contact-item i {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: white;
-            font-size: 1.25rem;
-        }
-
-        .footer {
-            background: var(--primary-dark);
-            color: white;
-            padding: 4rem 0 2rem;
-            margin-top: 4rem;
-            border-radius: 3rem 3rem 0 0;
-        }
-
-        .footer-logo-container {
-            width: 60px;
-            height: 60px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 12px;
-            margin-bottom: 1rem;
-        }
-
-        .footer-logo-container img {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            border-radius: 8px;
-        }
-
-        .footer-logo-container span {
-            font-size: 2rem;
-            color: white;
-        }
-
-        .footer h5 {
-            font-weight: 700;
-            margin-bottom: 1.5rem;
-            color: white;
-        }
-
-        .footer-links {
-            list-style: none;
-            padding: 0;
-        }
-
-        .footer-links li {
-            margin-bottom: 0.75rem;
-        }
-
-        .footer-links a {
-            color: rgba(255, 255, 255, 0.8);
-            text-decoration: none;
-            transition: all 0.3s ease;
-        }
-
-        .footer-links a:hover {
-            color: white;
-            transform: translateX(5px);
-            display: inline-block;
-        }
-
-        .social-links {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .social-links a {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 40px;
-            height: 40px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 50%;
-            color: white;
-            transition: all 0.3s ease;
-            text-decoration: none;
-        }
-
-        .social-links a:hover {
-            background: var(--secondary);
-            transform: translateY(-3px);
-        }
-
-        .section-title {
-            font-size: 2.5rem;
-            font-weight: 800;
-            color: var(--primary);
-            margin-bottom: 1rem;
-            position: relative;
-            display: inline-block;
-        }
-
-        .section-title::after {
-            content: '';
-            position: absolute;
-            bottom: -10px;
-            left: 0;
-            width: 80px;
-            height: 4px;
-            background: var(--gradient-secondary);
-            border-radius: 2px;
-        }
-
-        .tab-pane {
-            height: 0;
-            overflow: hidden;
-            opacity: 0;
-            transition: opacity 0.3s ease-in-out;
-            pointer-events: none;
-        }
-
-        .tab-pane.active {
-            height: auto;
-            overflow: visible;
-            opacity: 1;
-            pointer-events: auto;
-            animation: fadeIn 0.5s ease;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .custom-tab-nav {
-            margin-bottom: 1.5rem;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-        }
-
-        .custom-tab-nav .btn {
-            padding: 0.75rem 1.5rem;
-            font-weight: 600;
-            border-radius: 50px;
-        }
-
-        @media (max-width: 768px) {
-            .hero-title {
-                font-size: 2.5rem;
-            }
-
-            .section-title {
-                font-size: 2rem;
-            }
-
-            .chat-widget {
-                width: 90%;
-                right: 5%;
-                left: 5%;
-            }
-            
-            .btn-outline-custom,
-            .btn-primary-custom {
-                margin-bottom: 10px;
-            }
-            
-            .custom-tab-nav .btn {
-                width: 100%;
-            }
-        }
-
-        .hours-badge {
-            background: var(--gradient-accent);
-            color: white;
-            padding: 0.5rem 1.5rem;
-            border-radius: 50px;
-            font-weight: 600;
-            font-size: 0.9rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .stat-card {
-            text-align: center;
-            padding: 2rem;
-            background: white;
-            border-radius: 20px;
-            box-shadow: var(--shadow-sm);
-            transition: all 0.3s ease;
-        }
-
-        .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: var(--shadow-md);
-        }
-
-        .stat-number {
-            font-size: 3rem;
-            font-weight: 800;
-            color: var(--primary);
-            line-height: 1;
-        }
-
-        .stat-label {
-            color: var(--text-light);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            font-size: 0.9rem;
-        }
-        
-        .why-choose-us-section {
-            margin-top: 2rem !important;
-            position: relative !important;
-            z-index: 1 !important;
-            clear: both !important;
-            background: #f8fafc;
-            padding: 1.5rem;
-            border-radius: 16px;
-        }
-
-        .form-check-input {
-            cursor: pointer;
-        }
-    </style>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-custom fixed-top" id="mainNav">
@@ -1556,7 +584,6 @@ $currentYear = date("Y");
             </div>
         </div>
     </nav>
-
     <?php if ($form_submitted && !empty($form_message)): ?>
     <div class="container mt-5 pt-5">
         <div class="alert <?php echo $form_success ? 'alert-success' : 'alert-danger'; ?> alert-dismissible fade show" role="alert">
@@ -1566,7 +593,6 @@ $currentYear = date("Y");
         </div>
     </div>
     <?php endif; ?>
-
     <main class="mt-5 pt-4">
         <div class="tab-pane <?php echo $activeTab === 'home' ? 'active' : ''; ?>" id="home-tab">
             <section class="hero-section">
@@ -1600,7 +626,6 @@ $currentYear = date("Y");
                     </div>
                 </div>
             </section>
-
             <div class="container mt-5">
                 <div class="row g-4">
                     <div class="col-md-3 col-6" data-aos="fade-up" data-aos-delay="100">
@@ -1629,7 +654,6 @@ $currentYear = date("Y");
                     </div>
                 </div>
             </div>
-
             <div class="container mt-5">
                 <h2 class="section-title" data-aos="fade-right">Our Services</h2>
                 <div class="row g-4 mt-3">
@@ -1665,7 +689,6 @@ $currentYear = date("Y");
                     <button class="btn btn-outline-custom" onclick="switchTab('services')" style="width: auto;">View All Services <i class="bi bi-arrow-right ms-2"></i></button>
                 </div>
             </div>
-
             <div class="container mt-5">
                 <div class="card-modern" data-aos="fade-up">
                     <div class="card-header-gradient">
@@ -1714,12 +737,10 @@ $currentYear = date("Y");
                 </div>
             </div>
         </div>
-
         <div class="tab-pane <?php echo $activeTab === 'services' ? 'active' : ''; ?>" id="services-tab">
             <div class="container py-5">
                 <h2 class="section-title" data-aos="fade-right">Our Comprehensive Services</h2>
                 <p class="text-muted mb-5" data-aos="fade-right" data-aos-delay="100">Choose from our wide range of professional workforce solutions</p>
-
                 <div class="row g-4">
                     <?php
                     $services = [
@@ -1731,7 +752,6 @@ $currentYear = date("Y");
                         ['Office & Professional Support', 'bi-briefcase', ['Data Entry', 'Social Media Management', 'Website Design', 'HR Support']],
                         ['Specialized Services', 'bi-star', ['CCTV Installation', 'Property Services', 'Photography', 'Astrology']]
                     ];
-
                     foreach ($services as $index => $service):
                     ?>
                     <div class="col-lg-4 col-md-6" data-aos="fade-up" data-aos-delay="<?php echo $index * 100; ?>">
@@ -1752,7 +772,6 @@ $currentYear = date("Y");
                     </div>
                     <?php endforeach; ?>
                 </div>
-
                 <h2 class="section-title mt-5" data-aos="fade-right">Promoted Services</h2>
                 <div class="row g-4 mt-3">
                     <div class="col-md-3" data-aos="fade-up" data-aos-delay="100">
@@ -1798,12 +817,10 @@ $currentYear = date("Y");
                 </div>
             </div>
         </div>
-
         <div class="tab-pane <?php echo $activeTab === 'business' ? 'active' : ''; ?>" id="business-tab">
             <div class="container py-5">
                 <h2 class="section-title" data-aos="fade-right">Business Upgrade for Skilled Workers</h2>
                 <p class="text-muted mb-5" data-aos="fade-right" data-aos-delay="100">Boost your independent service business with our professional support</p>
-
                 <div class="custom-tab-nav mb-4">
                     <button class="btn <?php echo $activeBusinessTab === 'features' ? 'btn-primary' : 'btn-outline-primary'; ?>" onclick="switchBusinessSubTab('features')">
                         <i class="bi bi-stars me-2"></i>Features
@@ -1812,7 +829,6 @@ $currentYear = date("Y");
                         <i class="bi bi-pencil-square me-2"></i>Business Registration
                     </button>
                 </div>
-
                 <div class="business-tab-content">
                     <?php if ($activeBusinessTab === 'features'): ?>
                     <div id="features-content">
@@ -1845,7 +861,6 @@ $currentYear = date("Y");
                                 </div>
                             </div>
                         </div>
-
                         <div class="bg-light p-4 rounded-4 mt-4">
                             <h5 class="fw-bold text-primary mb-3">Perfect for:</h5>
                             <div class="row g-2">
@@ -1867,7 +882,6 @@ $currentYear = date("Y");
                                 <form method="POST" id="skilled-form">
                                     <input type="hidden" name="form_type" value="skilled">
                                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-
                                     <div class="row g-4">
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
@@ -1919,42 +933,36 @@ $currentYear = date("Y");
                                                 </select>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6" id="other_post_container" style="display: none;">
                                             <div class="form-floating-custom">
                                                 <label>Please specify your skill/service</label>
                                                 <input type="text" class="form-control" name="other_post">
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Business/Professional Name</label>
                                                 <input type="text" class="form-control" name="business_name" placeholder="e.g., Rajesh Electricals">
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Full Name *</label>
                                                 <input type="text" class="form-control" name="name" required>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Father/Husband Name *</label>
                                                 <input type="text" class="form-control" name="father_husband_name" required>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Date of Birth *</label>
                                                 <input type="date" class="form-control" name="dob" required>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Gender *</label>
@@ -1966,7 +974,6 @@ $currentYear = date("Y");
                                                 </select>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Marital Status *</label>
@@ -1978,35 +985,30 @@ $currentYear = date("Y");
                                                 </select>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Phone Number *</label>
                                                 <input type="tel" class="form-control" name="phone" required>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Service Area/Locality *</label>
                                                 <input type="text" class="form-control" name="work_locality" placeholder="e.g., Rewa City Center" required>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Email Address</label>
                                                 <input type="email" class="form-control" name="email">
                                             </div>
                                         </div>
-
                                         <div class="col-12">
                                             <div class="form-floating-custom">
                                                 <label>Current Address *</label>
                                                 <textarea class="form-control" name="current_address" rows="2" required></textarea>
                                             </div>
                                         </div>
-
                                         <div class="col-12">
                                             <div class="form-floating-custom">
                                                 <label>Permanent Address *</label>
@@ -2017,7 +1019,6 @@ $currentYear = date("Y");
                                                 </div>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Highest Qualification *</label>
@@ -2030,7 +1031,6 @@ $currentYear = date("Y");
                                                 </select>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Years of Experience *</label>
@@ -2044,14 +1044,12 @@ $currentYear = date("Y");
                                                 </select>
                                             </div>
                                         </div>
-
                                         <div class="col-12">
                                             <div class="form-floating-custom">
                                                 <label>Service Description & Specializations *</label>
                                                 <textarea class="form-control" name="skill_description" rows="4" placeholder="Describe your services, specialties, types of work you handle, etc." required></textarea>
                                             </div>
                                         </div>
-
                                         <div class="col-12">
                                             <button type="submit" class="btn btn-primary-custom">Register for Business Upgrade</button>
                                         </div>
@@ -2064,11 +1062,9 @@ $currentYear = date("Y");
                 </div>
             </div>
         </div>
-
         <div class="tab-pane <?php echo $activeTab === 'jobs' ? 'active' : ''; ?>" id="jobs-tab">
             <div class="container py-5">
                 <h2 class="section-title" data-aos="fade-right">Job Vacancies</h2>
-
                 <div class="custom-tab-nav mb-4">
                     <button class="btn <?php echo $activeJobsTab === 'openings' ? 'btn-primary' : 'btn-outline-primary'; ?>" onclick="switchJobsSubTab('openings')">
                         <i class="bi bi-list-ul me-2"></i>Open Positions
@@ -2077,7 +1073,6 @@ $currentYear = date("Y");
                         <i class="bi bi-pencil-square me-2"></i>Apply Now
                     </button>
                 </div>
-
                 <div class="jobs-tab-content">
                     <?php if ($activeJobsTab === 'openings'): ?>
                     <div id="openings-content">
@@ -2125,7 +1120,6 @@ $currentYear = date("Y");
                                 <form method="POST" id="permanent-form">
                                     <input type="hidden" name="form_type" value="permanent">
                                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-
                                     <div class="row g-4">
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
@@ -2145,35 +1139,30 @@ $currentYear = date("Y");
                                                 </select>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6" id="other_position_container" style="display: none;">
                                             <div class="form-floating-custom">
                                                 <label>Please specify position</label>
                                                 <input type="text" class="form-control" name="other_position">
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Full Name *</label>
                                                 <input type="text" class="form-control" name="name" required>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Father/Husband Name *</label>
                                                 <input type="text" class="form-control" name="father_husband_name" required>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Date of Birth *</label>
                                                 <input type="date" class="form-control" name="dob" required>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Gender *</label>
@@ -2185,7 +1174,6 @@ $currentYear = date("Y");
                                                 </select>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Marital Status *</label>
@@ -2197,28 +1185,24 @@ $currentYear = date("Y");
                                                 </select>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Phone Number *</label>
                                                 <input type="tel" class="form-control" name="phone" required>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Email Address</label>
                                                 <input type="email" class="form-control" name="email">
                                             </div>
                                         </div>
-
                                         <div class="col-12">
                                             <div class="form-floating-custom">
                                                 <label>Current Address *</label>
                                                 <textarea class="form-control" name="current_address" rows="2" required></textarea>
                                             </div>
                                         </div>
-
                                         <div class="col-12">
                                             <div class="form-floating-custom">
                                                 <label>Permanent Address *</label>
@@ -2229,7 +1213,6 @@ $currentYear = date("Y");
                                                 </div>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Highest Qualification *</label>
@@ -2242,7 +1225,6 @@ $currentYear = date("Y");
                                                 </select>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Years of Experience</label>
@@ -2256,7 +1238,6 @@ $currentYear = date("Y");
                                                 </select>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Computer Skills</label>
@@ -2269,7 +1250,6 @@ $currentYear = date("Y");
                                                 </select>
                                             </div>
                                         </div>
-
                                         <div class="col-md-6">
                                             <div class="form-floating-custom">
                                                 <label>Availability</label>
@@ -2282,7 +1262,6 @@ $currentYear = date("Y");
                                                 </select>
                                             </div>
                                         </div>
-
                                         <div class="col-12">
                                             <label class="fw-semibold mb-2">Communication Skills</label>
                                             <div class="row">
@@ -2306,7 +1285,6 @@ $currentYear = date("Y");
                                                 </div>
                                             </div>
                                         </div>
-
                                         <div class="col-12">
                                             <button type="submit" class="btn btn-primary-custom">Submit Application</button>
                                         </div>
@@ -2319,18 +1297,15 @@ $currentYear = date("Y");
                 </div>
             </div>
         </div>
-
         <div class="tab-pane <?php echo $activeTab === 'placement' ? 'active' : ''; ?>" id="placement-tab">
             <div class="container py-5">
                 <h2 class="section-title" data-aos="fade-right">Placement Help</h2>
                 <p class="text-muted mb-5" data-aos="fade-right" data-aos-delay="100">Get assistance finding the right job for your skills and experience</p>
-
                 <div class="card-modern" data-aos="fade-up">
                     <div class="card-body-modern">
                         <form method="POST" id="placement-form">
                             <input type="hidden" name="form_type" value="placement">
                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-
                             <div class="row g-4">
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
@@ -2338,21 +1313,18 @@ $currentYear = date("Y");
                                         <input type="text" class="form-control" name="name" required>
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Father/Husband Name *</label>
                                         <input type="text" class="form-control" name="father_husband_name" required>
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Date of Birth *</label>
                                         <input type="date" class="form-control" name="dob" required>
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Gender *</label>
@@ -2364,7 +1336,6 @@ $currentYear = date("Y");
                                         </select>
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Marital Status *</label>
@@ -2376,28 +1347,24 @@ $currentYear = date("Y");
                                         </select>
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Phone Number *</label>
                                         <input type="tel" class="form-control" name="phone" required>
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Email *</label>
                                         <input type="email" class="form-control" name="email" required>
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Current Address *</label>
                                         <textarea class="form-control" name="current_address" rows="2" required></textarea>
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Permanent Address *</label>
@@ -2408,7 +1375,6 @@ $currentYear = date("Y");
                                         </div>
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Highest Qualification *</label>
@@ -2421,28 +1387,24 @@ $currentYear = date("Y");
                                         </select>
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Work Experience</label>
                                         <textarea class="form-control" name="experience" rows="2" placeholder="Describe your work experience"></textarea>
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Desired Job Profile *</label>
                                         <input type="text" class="form-control" name="desired_job_profile" required placeholder="e.g., Software Developer, Marketing Manager">
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Current Job Role</label>
                                         <input type="text" class="form-control" name="current_job_role" placeholder="e.g., Senior Developer, Unemployed">
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Notice Period *</label>
@@ -2459,21 +1421,18 @@ $currentYear = date("Y");
                                         </select>
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Current/Last Salary (₹)</label>
                                         <input type="text" class="form-control" name="current_ctc" placeholder="e.g., 5,00,000 per annum">
                                     </div>
                                 </div>
-
                                 <div class="col-md-6">
                                     <div class="form-floating-custom">
                                         <label>Expected Salary (₹)</label>
                                         <input type="text" class="form-control" name="expected_ctc" placeholder="e.g., 7,00,000 per annum">
                                     </div>
                                 </div>
-
                                 <div class="col-12">
                                     <label class="fw-semibold mb-2">Preferred Job Location *</label>
                                     <div class="row g-2">
@@ -2515,7 +1474,6 @@ $currentYear = date("Y");
                                         </div>
                                     </div>
                                 </div>
-
                                 <div class="col-12">
                                     <button type="submit" class="btn btn-primary-custom">Submit for Placement Help</button>
                                 </div>
@@ -2525,12 +1483,10 @@ $currentYear = date("Y");
                 </div>
             </div>
         </div>
-
         <div class="tab-pane <?php echo $activeTab === 'team' ? 'active' : ''; ?>" id="team-tab">
             <div class="container py-5">
                 <h2 class="section-title" data-aos="fade-right">Our Leadership Team</h2>
                 <p class="text-muted mb-5" data-aos="fade-right" data-aos-delay="100">Meet the experts behind our success</p>
-
                 <div class="row g-4">
                     <?php
                     try {
@@ -2624,18 +1580,15 @@ $currentYear = date("Y");
                 </div>
             </div>
         </div>
-
         <div class="tab-pane <?php echo $activeTab === 'contact' ? 'active' : ''; ?>" id="contact-tab">
             <div class="container py-5">
                 <h2 class="section-title" data-aos="fade-right">Contact Us</h2>
                 <p class="text-primary fw-bold mb-4" data-aos="fade-right" data-aos-delay="100"><i class="bi bi-bolt me-2"></i>Get service in just 15 minutes - Call us now!</p>
-
                 <div class="row g-4">
                     <div class="col-lg-5" data-aos="fade-up">
                         <div class="card-modern h-100" style="background: var(--gradient-primary); color: white;">
                             <div class="card-body-modern">
                                 <h4 class="text-white mb-4"><i class="bi bi-info-circle me-2"></i>Contact Information</h4>
-
                                 <div class="d-flex gap-3 mb-4">
                                     <i class="bi bi-telephone fs-3"></i>
                                     <div>
@@ -2643,7 +1596,6 @@ $currentYear = date("Y");
                                         <a href="tel:<?php echo preg_replace('/[^0-9]/', '', $company_phone); ?>" class="text-white text-decoration-none"><?php echo htmlspecialchars($company_phone); ?></a>
                                     </div>
                                 </div>
-
                                 <div class="d-flex gap-3 mb-4">
                                     <i class="bi bi-whatsapp fs-3"></i>
                                     <div>
@@ -2651,7 +1603,6 @@ $currentYear = date("Y");
                                         <a href="https://wa.me/<?php echo preg_replace('/[^0-9]/', '', $company_whatsapp); ?>" class="text-white text-decoration-none" target="_blank"><?php echo htmlspecialchars($company_whatsapp); ?></a>
                                     </div>
                                 </div>
-
                                 <div class="d-flex gap-3 mb-4">
                                     <i class="bi bi-envelope fs-3"></i>
                                     <div>
@@ -2659,7 +1610,6 @@ $currentYear = date("Y");
                                         <a href="mailto:<?php echo htmlspecialchars($company_email); ?>" class="text-white text-decoration-none"><?php echo htmlspecialchars($company_email); ?></a>
                                     </div>
                                 </div>
-
                                 <div class="d-flex gap-3 mb-4">
                                     <i class="bi bi-geo-alt fs-3"></i>
                                     <div>
@@ -2668,20 +1618,17 @@ $currentYear = date("Y");
                                         <p class="small opacity-75"><?php echo htmlspecialchars($company_address); ?></p>
                                     </div>
                                 </div>
-
                                 <div class="bg-white bg-opacity-10 p-3 rounded-4">
                                     <h5 class="text-white mb-2">Business Hours</h5>
                                     <p class="mb-1"><i class="bi bi-clock me-2"></i><?php echo htmlspecialchars($company_hours); ?></p>
                                     <p class="mb-0"><i class="bi bi-exclamation-circle me-2"></i>Emergency services available 24/7</p>
                                 </div>
-
                                 <button class="btn btn-light w-100 mt-4" id="downloadVCF">
                                     <i class="bi bi-card-heading me-2"></i>Download Contact Card
                                 </button>
                             </div>
                         </div>
                     </div>
-
                     <div class="col-lg-7" data-aos="fade-up" data-aos-delay="200">
                         <div class="custom-tab-nav mb-4">
                             <button class="btn <?php echo $activeContactTab === 'service' ? 'btn-primary' : 'btn-outline-primary'; ?>" onclick="switchContactSubTab('service')">
@@ -2691,7 +1638,6 @@ $currentYear = date("Y");
                                 <i class="bi bi-envelope me-2"></i>General Contact
                             </button>
                         </div>
-
                         <div class="contact-tab-content">
                             <?php if ($activeContactTab === 'service'): ?>
                             <div id="service-content">
@@ -2700,7 +1646,6 @@ $currentYear = date("Y");
                                         <form method="POST">
                                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                             <input type="hidden" name="service_enquiry" value="1">
-
                                             <div class="row g-4">
                                                 <div class="col-md-6">
                                                     <div class="form-floating-custom">
@@ -2771,7 +1716,6 @@ $currentYear = date("Y");
                                         <form method="POST">
                                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                             <input type="hidden" name="general_contact" value="1">
-
                                             <div class="row g-4">
                                                 <div class="col-md-6">
                                                     <div class="form-floating-custom">
@@ -2824,7 +1768,6 @@ $currentYear = date("Y");
             </div>
         </div>
     </main>
-
     <footer class="footer">
         <div class="container">
             <div class="row g-4">
@@ -2880,15 +1823,14 @@ $currentYear = date("Y");
             </div>
         </div>
     </footer>
-
     <button class="chat-toggle" id="chatToggle">
         <i class="bi bi-chat-dots"></i>
     </button>
-
     <div class="quick-contact-popup" id="quickContactPopup">
         <div class="bg-primary text-white p-3">
             <h6 class="mb-0"><i class="bi bi-headset me-2"></i>Quick Contact</h6>
         </div>
+                <?php if ($is_staff_online): ?>
         <a href="#" class="quick-contact-item" id="openLiveChat">
             <i class="bi bi-chat" style="background: var(--primary);"></i>
             <div>
@@ -2896,6 +1838,7 @@ $currentYear = date("Y");
                 <p class="small text-muted mb-0">Chat with our team</p>
             </div>
         </a>
+        <?php endif; ?>
         <a href="https://wa.me/<?php echo preg_replace('/[^0-9]/', '', $company_whatsapp); ?>" target="_blank" class="quick-contact-item">
             <i class="bi bi-whatsapp" style="background: #25D366;"></i>
             <div>
@@ -2918,7 +1861,6 @@ $currentYear = date("Y");
             </div>
         </a>
     </div>
-
     <div class="chat-widget" id="chatWidget">
         <div class="chat-header">
             <h5><i class="bi bi-chat-dots me-2"></i>Live Chat - <?php echo htmlspecialchars($site_title); ?></h5>
@@ -2978,16 +1920,13 @@ $currentYear = date("Y");
             </div>
         </div>
     </div>
-
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
-
     <script>
         AOS.init({
             duration: 800,
             once: true
         });
-
         window.addEventListener('scroll', function() {
             const nav = document.getElementById('mainNav');
             if (window.scrollY > 50) {
@@ -2996,7 +1935,6 @@ $currentYear = date("Y");
                 nav.classList.remove('scrolled');
             }
         });
-
         function closeNavbar() {
             const navbarCollapse = document.getElementById('navbarNav');
             if (navbarCollapse && navbarCollapse.classList.contains('show')) {
@@ -3004,28 +1942,23 @@ $currentYear = date("Y");
                 bsCollapse.hide();
             }
         }
-
         function switchTab(tabId) {
             const url = new URL(window.location);
             url.searchParams.set('tab', tabId);
             history.pushState(null, null, url);
-
             document.querySelectorAll('.tab-pane').forEach(tab => {
                 tab.classList.remove('active');
             });
-
             const selectedTab = document.getElementById(tabId + '-tab');
             if (selectedTab) {
                 selectedTab.classList.add('active');
             }
-
             document.querySelectorAll('.nav-link-custom').forEach(link => {
                 link.classList.remove('active');
                 if (link.getAttribute('onclick')?.includes(tabId)) {
                     link.classList.add('active');
                 }
             });
-
             window.scrollTo({ top: 0, behavior: 'smooth' });
             setTimeout(() => { 
                 if (typeof AOS !== 'undefined') {
@@ -3033,7 +1966,6 @@ $currentYear = date("Y");
                 }
             }, 100);
         }
-
         function switchBusinessSubTab(subTabId) {
             const url = new URL(window.location);
             url.searchParams.set('tab', 'business');
@@ -3041,7 +1973,6 @@ $currentYear = date("Y");
             history.pushState(null, null, url);
             location.reload();
         }
-
         function switchJobsSubTab(subTabId) {
             const url = new URL(window.location);
             url.searchParams.set('tab', 'jobs');
@@ -3049,7 +1980,6 @@ $currentYear = date("Y");
             history.pushState(null, null, url);
             location.reload();
         }
-
         function switchContactSubTab(subTabId) {
             const url = new URL(window.location);
             url.searchParams.set('tab', 'contact');
@@ -3057,7 +1987,6 @@ $currentYear = date("Y");
             history.pushState(null, null, url);
             location.reload();
         }
-
         function copyAddress(suffix = '') {
             const currentAddress = document.querySelector('textarea[name="current_address"]');
             const permanentAddress = document.querySelector('textarea[name="permanent_address"]');
@@ -3065,7 +1994,6 @@ $currentYear = date("Y");
                 permanentAddress.value = currentAddress.value;
             }
         }
-
         document.getElementById('downloadVCF')?.addEventListener('click', function() {
             const vcfContent = `BEGIN:VCARD
 VERSION:3.0
@@ -3078,7 +2006,6 @@ ADR;TYPE=WORK:<?php echo addslashes($company_address); ?>;Rewa;Madhya Pradesh;48
 URL:https://hidk.in/
 NOTE:Workforce solutions for everyday help. Working hours: <?php echo addslashes($company_hours); ?>. Emergency services available.
 END:VCARD`;
-
             const blob = new Blob([vcfContent], {type: 'text/vcard'});
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -3089,7 +2016,6 @@ END:VCARD`;
             window.URL.revokeObjectURL(url);
             document.body.removeChild(a);
         });
-
         const chatToggle = document.getElementById('chatToggle');
         const quickContactPopup = document.getElementById('quickContactPopup');
         const chatWidget = document.getElementById('chatWidget');
@@ -3102,34 +2028,28 @@ END:VCARD`;
         const chatInitForm = document.getElementById('chatInitForm');
         const chatMessagesContainer = document.getElementById('chatMessagesContainer');
         const chatInitFormElement = document.getElementById('chatInitFormElement');
-
         let chatPollInterval = null;
         let lastMessageId = 0;
         let currentSessionId = null;
-
         chatToggle?.addEventListener('click', function() {
             quickContactPopup?.classList.toggle('show');
         });
-
         openLiveChat?.addEventListener('click', function(e) {
             e.preventDefault();
             quickContactPopup?.classList.remove('show');
             chatWidget?.classList.add('show');
         });
-
         closeChat?.addEventListener('click', function() {
             chatWidget?.classList.remove('show');
         });
-
         endChatBtn?.addEventListener('click', function() {
             if (confirm('Are you sure you want to end this chat session?')) {
                 terminateChatSession();
             }
         });
-
         function terminateChatSession() {
             if (currentSessionId) {
-                fetch('api/guest_chat.php', {
+                fetch('admin.php?action=guest_chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -3137,14 +2057,12 @@ END:VCARD`;
                         session_id: currentSessionId 
                     })
                 }).catch(() => {});
-                
                 currentSessionId = null;
                 if (chatPollInterval) {
                     clearInterval(chatPollInterval);
                     chatPollInterval = null;
                 }
             }
-            
             chatWidget?.classList.remove('show');
             if (chatInitForm) chatInitForm.style.display = 'block';
             if (chatMessagesContainer) chatMessagesContainer.style.display = 'none';
@@ -3158,25 +2076,20 @@ END:VCARD`;
             if (endChatBtn) endChatBtn.style.display = 'none';
             if (chatInitFormElement) chatInitFormElement.reset();
         }
-
         if (chatInitFormElement) {
             chatInitFormElement.addEventListener('submit', function(e) {
                 e.preventDefault();
                 const guestName = this.querySelector('[name="guest_name"]').value.trim();
                 const reason = this.querySelector('[name="contact_reason"]').value;
                 if (!guestName || !reason) return;
-
                 const sessionId = 'sess_' + Date.now() + '_' + Math.random().toString(36).substr(2,8);
                 currentSessionId = sessionId;
-
                 chatInitForm.style.display = 'none';
                 chatMessagesContainer.style.display = 'block';
                 endChatBtn.style.display = 'inline-flex';
-
                 const email = this.querySelector('[name="guest_email"]').value.trim();
                 const phone = this.querySelector('[name="guest_phone"]').value.trim();
-                
-                fetch('api/guest_chat.php', {
+                fetch('admin.php?action=guest_chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -3199,19 +2112,15 @@ END:VCARD`;
                                 startChatPolling(sessionId);
             });
         }
-
         function startChatPolling(sessionId) {
             if (chatPollInterval) clearInterval(chatPollInterval);
-            
             chatPollInterval = setInterval(function() {
-                fetch(`api/guest_chat.php?action=get_messages&session_id=${encodeURIComponent(sessionId)}&since_id=${lastMessageId}`)
+                fetch('admin.php?action=guest_chat&action=get_messages&session_id=${encodeURIComponent(sessionId)}&since_id=${lastMessageId}')
                     .then(r => r.json())
                     .then(data => {
                         if (!data.messages) return;
-                        
                         data.messages.forEach(msg => {
                             if (msg.id > lastMessageId) lastMessageId = msg.id;
-                            
                             if (msg.sender_type === 'admin' || msg.sender_type === 'system') {
                                 const messageDiv = document.createElement('div');
                                 messageDiv.className = 'chat-message admin';
@@ -3223,7 +2132,6 @@ END:VCARD`;
                                 chatMessages.scrollTop = chatMessages.scrollHeight;
                             }
                         });
-                        
                         if (data.session_status === 'terminated') {
                             clearInterval(chatPollInterval);
                             chatPollInterval = null;
@@ -3238,13 +2146,10 @@ END:VCARD`;
                     }).catch(() => {});
             }, 2000);
         }
-
         function sendMessage() {
             const msg = chatInput.value.trim();
             if (!msg || !currentSessionId) return;
-
             const time = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-
             const messageDiv = document.createElement('div');
             messageDiv.className = 'chat-message guest';
             messageDiv.innerHTML = `
@@ -3254,8 +2159,7 @@ END:VCARD`;
             chatMessages.appendChild(messageDiv);
             chatInput.value = '';
             chatMessages.scrollTop = chatMessages.scrollHeight;
-
-            fetch('api/guest_chat.php', {
+            fetch('admin.php?action=guest_chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -3265,20 +2169,26 @@ END:VCARD`;
                 })
             }).catch(() => {});
         }
-
         if (chatSendBtn) {
             chatSendBtn.addEventListener('click', sendMessage);
         }
-
         if (chatInput) {
-            chatInput.addEventListener('keypress', function(e) {
+                            chatInput.addEventListener('input', function() {
+                    if (currentSessionId) {
+                        fetch('admin.php?action=guest_chat', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ action: 'typing', session_id: currentSessionId, sender_type: 'guest' })
+                        }).catch(() => {});
+                    }
+                });
+                chatInput.addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     sendMessage();
                 }
             });
         }
-
         document.addEventListener('click', function(e) {
             if (chatToggle && quickContactPopup && chatWidget) {
                 if (!chatToggle.contains(e.target) && !quickContactPopup.contains(e.target) && !chatWidget.contains(e.target)) {
@@ -3286,7 +2196,6 @@ END:VCARD`;
                 }
             }
         });
-
         const desiredPost = document.querySelector('select[name="desired_post"]');
         if (desiredPost) {
             desiredPost.addEventListener('change', function() {
@@ -3296,7 +2205,6 @@ END:VCARD`;
                 }
             });
         }
-
         const postApplied = document.getElementById('post_applied');
         if (postApplied) {
             postApplied.addEventListener('change', function() {
@@ -3306,7 +2214,6 @@ END:VCARD`;
                 }
             });
         }
-
         const urlParams = new URLSearchParams(window.location.search);
         const tabParam = urlParams.get('tab');
         if (tabParam && document.getElementById(tabParam + '-tab')) {
@@ -3315,6 +2222,7 @@ END:VCARD`;
             switchTab('home');
         }
     </script>
+    <script src="functions.js"></script>
 </body>
 </html>
 <?php $db->close(); ?>
